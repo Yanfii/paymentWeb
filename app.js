@@ -162,9 +162,9 @@ app.post('/buy', function(req, res) {
 app.head('/test', function(req, res) {
   res.status(200).links({
     'payment-method-manifest':
-        'https://yanfii.github.io/test/payment-manifest.json',
+        'https://yanfii.github.io/test/bobpay/payment-manifest.json',
   }).end();
-}); 
+});
 
 /**
  * Starts the server.

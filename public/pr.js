@@ -226,6 +226,7 @@ function buy() { // eslint-disable-line no-unused-vars
           supportedTypes: ['debit', 'credit', 'prepaid'],
         },
       },
+      
     ],
     details,
     {
