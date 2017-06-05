@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Web Payments Demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="//fonts.googleapis.com/css?family=Raleway:400,300,600" rel="stylesheet" type="text/css">
+<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.5.0/styles/tomorrow.min.css">
+<link rel="stylesheet" href="normalize.css">
+<link rel="stylesheet" href="skeleton.css">
+<link rel="icon" type="image/png" href="favicon.ico">
+</head>
+<body>
+<div class="container">
+<div class="row">
+
+<h1>Web Payments</h1>
+
+<button class="button button-primary" onclick="buy()">Demo</button>
+<pre id="msg"></pre>
+
+<p>This web payments demo simulates payments in Android Pay and credit cards.
+The credit cards are not sent to the server. For Android Pay, we run a test
+transaction of 50 cents. This amount is refunded within a week. The server is
+written in Node.js.</p>
+
+<ul>
+  <li><a href="https://goshippo.com/">Shippo</a> for shipping fee
+    calculations.</li>
+  <li>If the user does not complete the transaction in 20 minutes, the payment
+    is aborted.</li>
+  <li><a href="https://stripe.com/">Stripe</a> for paying with Android Pay.</li>
+</ul>
+
+<h2>Client side code</h2>
+
+<h4><code>pr.js</code></h4>
+
+<pre><code>/**
+ * Show the msg to the user.
+ *
+ * @private
+ * @param {string} msg The message to print in the 'live output' section of the
+ * page.
+ */
+function print(msg) {
+  let element = document.getElementById('msg');
+  element.innerHTML = element.innerHTML + '&lt;br&gt;' + msg;
+}
+
+/**
+ * Notify Chrome that the instrument authorization has completed.
+ *
+ * @private
+ * @param {PaymentResponse} instrument The payment instrument that was authed.
+ * @param {string} result Whether the auth was successful. Should be either
+ * 'success' or 'fail'.
+ * @param {string} msg The message to print in the 'live output' section of the
+ * page after the browser hides its UI.
+ */
+function complete(instrument, result, msg) {
+  instrument.complete(result).then(function() {
+    print(msg);
+  }).catch(function(error) {
+    print(error);
+  });
+}
+
+/**
+ * Lets the user know that shipping is not possible.
+ *
+ * @private
+ * @param {string} message The message to print in the 'live output' section of
+ * the page.
+ * @param {PaymentDetails} details The details for payment.
+ * @param {function} callback The callback to invoke.
+ */
+function cannotShip(message, details, callback) {
+  print(message);
+  delete details.shippingOptions;
+  callback(details);
+}
+
+/**
+ * Lets the user know that shipping is possible.
+ *
+ * @private
+ * @param {PaymentDetails} details The details for payment.
+ * @param {Array} shippingOptions The shipping options.
+ * @param {function} callback The callback to invoke.
+ */
+function canShip(details, shippingOptions, callback) {
+  let selectedShippingOption;
+  for (let i in shippingOptions) {
+    if (shippingOptions[i].selected) {
+      selectedShippingOption = shippingOptions[i];
+    }
+  }
+
+  let subtotal = 0.50;
+  let total = subtotal;
+  if (selectedShippingOption) {
+    let shippingPrice = Number(selectedShippingOption.amount.value);
+    total = subtotal + shippingPrice;
+  }
+
+  details.shippingOptions = shippingOptions;
+  details.total = {
+    label: 'Total',
+    amount: {currency: 'USD', value: total.toFixed(2)},
+  };
+  details.displayItems = [
+    {
+      label: 'Sub-total',
+      amount: {currency: 'USD', value: subtotal.toFixed(2)},
+    },
+  ];
+  if (selectedShippingOption) {
+    details.displayItems.splice(0, 0, selectedShippingOption);
+  }
+
+  callback(details);
+}
+
+/**
+ * Converts the payment instrument into a dictionary.
+ *
+ * @private
+ * @param {PaymentResponse} instrument The instrument to convert.
+ * @return {object} The dictionary representation of the instrument.
+ */
+function instrumentToDictionary(instrument) {
+  let details = instrument.details;
+  if ('cardNumber' in details) {
+    details.cardNumber = 'XXXX-XXXX-XXXX-' + details.cardNumber.substr(12);
+  }
+
+  if ('cardSecurityCode' in details) {
+    details.cardSecurityCode = '***';
+  }
+
+  return {
+    methodName: instrument.methodName,
+    details: details,
+    shippingAddress: addressToDictionary(instrument.shippingAddress),
+    shippingOption: instrument.shippingOption,
+    payerName: instrument.payerName,
+    payerPhone: instrument.payerPhone,
+    payerEmail: instrument.payerEmail,
+  };
+}
+
+/**
+ * Converts the payment instrument into a JSON string.
+ *
+ * @private
+ * @param {PaymentResponse} instrument The instrument to convert.
+ * @return {string} The string representation of the instrument.
+ */
+function instrumentToJsonString(instrument) {
+  /* PaymentResponse is an interface, but JSON.stringify works only on
+   * dictionaries. */
+  return JSON.stringify(instrumentToDictionary(instrument), undefined, 2);
+}
+
+/**
+ * Simulates credit card processing without talking to the server.
+ *
+ * @private
+ * @param {PaymentResponse} instrument The credit card information to simulate
+ * processing.
+ */
+function simulateCreditCardProcessing(instrument) {
+  let simulationTimeout = window.setTimeout(function() {
+    window.clearTimeout(simulationTimeout);
+    instrument.complete('success').then(function() {
+      print(instrumentToJsonString(instrument));
+      print('Simulated credit card authorization');
+    }).catch(function(error) {
+      print(error);
+    });
+  }, 5 * 1000);  /* +5 seconds to simulate server latency. */
+}
+
+/**
+ * Converts the shipping address into a dictionary.
+ *
+ * @private
+ * @param {PaymentAddress} address The address to convert.
+ * @return {object} The dictionary with address data.
+ */
+function addressToDictionary(address) {
+  if (address.toJSON) {
+    return address.toJSON();
+  }
+  return {
+    recipient: address.recipient,
+    organization: address.organization,
+    addressLine: address.addressLine,
+    dependentLocality: address.dependentLocality,
+    city: address.city,
+    region: address.region,
+    postalCode: address.postalCode,
+    sortingCode: address.sortingCode,
+    country: address.country,
+    phone: address.phone,
+  };
+}
+
+/**
+ * Converts the shipping address into a JSON string.
+ *
+ * @private
+ * @param {PaymentAddress} address The address to convert.
+ * @return {string} The string representation of the address.
+ */
+function addressToJsonString(address) {
+  return JSON.stringify(addressToDictionary(address), undefined, 2);
+}
+
+/**
+ * Authorizes user's Android Pay for USD $0.50 plus shipping. Simulates credit
+ * card processing without talking to the server.
+ */
+function buy() { // eslint-disable-line no-unused-vars
+  document.getElementById('msg').innerHTML = '';
+
+  if (!window.PaymentRequest) {
+    print('Web payments are not supported in this browser');
+    return;
+  }
+
+  let details = {
+    total: {label: 'Total', amount: {currency: 'USD', value: '0.50'}},
+  };
+
+  let networks = ['visa', 'mastercard', 'amex', 'discover', 'diners', 'jcb',
+      'unionpay', 'mir'];
+  let payment = new PaymentRequest( // eslint-disable-line no-undef
+    [
+      {
+        supportedMethods: ['https://android.com/pay'],
+        data: {
+          merchantName: 'Web Payments Demo',
+          allowedCardNetworks: ['AMEX', 'MASTERCARD', 'VISA', 'DISCOVER'],
+          merchantId: '00184145120947117657',
+          paymentMethodTokenizationParameters: {
+            tokenizationType: 'GATEWAY_TOKEN',
+            parameters: {
+              'gateway': 'stripe',
+              'stripe:publishableKey': 'pk_live_lNk21zqKM2BENZENh3rzCUgo',
+              'stripe:version': '2016-07-06',
+            },
+          },
+        },
+      },
+      {
+        supportedMethods: networks,
+      },
+      {
+        supportedMethods: ['basic-card'],
+        data: {
+          supportedNetworks: networks,
+          supportedTypes: ['debit', 'credit', 'prepaid'],
+        },
+      },
+    ],
+    details,
+    {
+      requestShipping: true,
+      requestPayerName: true,
+      requestPayerPhone: true,
+      requestPayerEmail: true,
+      shippingType: 'shipping',
+    });
+
+  payment.addEventListener('shippingaddresschange', function(evt) {
+    evt.updateWith(new Promise(function(resolve) {
+      fetch('/ship', {
+        method: 'POST',
+        headers: new Headers({'Content-Type': 'application/json'}),
+        body: addressToJsonString(payment.shippingAddress),
+      })
+      .then(function(options) {
+        if (options.ok) {
+          return options.json();
+        }
+        cannotShip('Unable to calculate shipping options.', details,
+            resolve);
+      })
+      .then(function(optionsJson) {
+        if (optionsJson.status === 'success') {
+          canShip(details, optionsJson.shippingOptions, resolve);
+        } else {
+          cannotShip('Unable to calculate shipping options.', details,
+              resolve);
+        }
+      })
+      .catch(function(error) {
+        cannotShip('Unable to calculate shipping options. ' + error, details,
+            resolve);
+      });
+    }));
+  });
+
+  payment.addEventListener('shippingoptionchange', function(evt) {
+    evt.updateWith(new Promise(function(resolve) {
+      for (let i in details.shippingOptions) {
+        if ({}.hasOwnProperty.call(details.shippingOptions, i)) {
+          details.shippingOptions[i].selected =
+              (details.shippingOptions[i].id === payment.shippingOption);
+        }
+      }
+
+      canShip(details, details.shippingOptions, resolve);
+    }));
+  });
+
+  let paymentTimeout = window.setTimeout(function() {
+    window.clearTimeout(paymentTimeout);
+    payment.abort().then(function() {
+      print('Payment timed out after 20 minutes.');
+    }).catch(function() {
+      print('Unable to abort, because the user is currently in the process ' +
+          'of paying.');
+    });
+  }, 20 * 60 * 1000);  /* 20 minutes */
+
+  payment.show()
+  .then(function(instrument) {
+    window.clearTimeout(paymentTimeout);
+
+    if (instrument.methodName !== 'https://android.com/pay') {
+      simulateCreditCardProcessing(instrument);
+      return;
+    }
+
+    let instrumentObject = instrumentToDictionary(instrument);
+    instrumentObject.total = details.total;
+    let instrumentString = JSON.stringify(instrumentObject, undefined, 2);
+    fetch('/buy', {
+      method: 'POST',
+      headers: new Headers({'Content-Type': 'application/json'}),
+      body: instrumentString,
+    })
+    .then(function(buyResult) {
+      if (buyResult.ok) {
+        return buyResult.json();
+      }
+      complete(instrument, 'fail', 'Error sending instrument to server.');
+    }).then(function(buyResultJson) {
+      print(instrumentString);
+      complete(instrument, buyResultJson.status, buyResultJson.message);
+    });
+  })
+  .catch(function(error) {
+    print('Could not charge user. ' + error);
+  });
+}</code></pre>
+
+<h2>Server side code</h2>
+
+<h4><code>package.json</code></h4>
+
+<pre><code>{
+  "name": "web-payments-demo",
+  "description": "A web payments demo",
+  "version": "1.0.0",
+  "author": "Rouslan Solomakhin",
+  "engines": {
+    "node": "&gt;=0.10.25"
+  },
+  "license": "Apache Version 2.0",
+  "scripts": {
+    "start": "node app.js",
+    "monitor": "nodemon app.js",
+    "deploy": "gcloud app deploy app.yaml"
+  },
+  "dependencies": {
+    "body-parser": "^1.15.1",
+    "express": "^4.13.4",
+    "shippo": "^1.1.3",
+    "stripe": "^4.6.0"
+  }
+}</code></pre>
+
+<h4><code>config.js</code></h4>
+
+<pre><code>module.exports = {
+  stripeKey: '&lt;PUT_YOUR_STRIPE_SECRET_KEY_HERE&gt;',
+  shippoKey: '&lt;PUT_YOUR_SHIPPO_SECRET_KEY_HERE&gt;',
+};</code></pre>
+
+<h4><code>app.js</code></h4>
+
+<pre><code>'use strict';
+
+let express = require('express');
+let bodyParser = require('body-parser');
+let config = require('./config');
+let shippo = require('shippo')(config.shippoKey);
+let stripe = require('stripe')(config.stripeKey);
+
+let app = express();
+app.use(bodyParser.json());
+app.use(express.static('public'));
+
+/**
+ * Calculates the shipping price.
+ */
+app.post('/ship', function(req, res) {
+  let addressLines = req.body.addressLine;
+  if (req.body.dependentLocality.length &gt; 0) {
+    addressLines.push(req.body.dependentLocality);
+  }
+
+  let postalCode = req.body.postalCode;
+  if (req.body.sortingCode.length &gt; 0) {
+    if (postalCode.length &gt; 0) {
+      addressLines.push(req.body.sortingCode);
+    } else {
+      postalCode = req.body.sortingCode;
+    }
+  }
+
+  let street1 = '';
+  if (addressLines.length &gt; 0) {
+    street1 = addressLines[0];
+  }
+
+  let street2 = '';
+  if (addressLines.length &gt; 1) {
+    street2 = addressLines.slice(1).join(', ');
+  }
+
+  let shipment = {
+    object_purpose: 'PURCHASE',
+    address_from: {
+      object_purpose: 'PURCHASE',
+      name: 'Rouslan Solomakhin',
+      company: 'Google',
+      street1: '340 Main St',
+      street2: '',
+      city: 'Los Angeles',
+      state: 'CA',
+      zip: '90291',
+      country: 'US',
+      phone: '310-310-6000',
+      email: 'test.source@test.com',
+    },
+    address_to: {
+      object_purpose: 'PURCHASE',
+      name: req.body.recipient,
+      company: req.body.organization,
+      street1: street1,
+      street2: street2,
+      city: req.body.city,
+      state: req.body.region,
+      zip: postalCode,
+      country: req.body.country,
+      phone: req.body.phone,
+      email: 'test.destination@test.com',
+    },
+    parcel: {
+      length: '5',
+      width: '5',
+      height: '5',
+      distance_unit: 'in',
+      weight: '2',
+      mass_unit: 'lb',
+    },
+    async: false,
+  };
+
+  shippo.shipment.create(shipment, function(err, shipment) {
+    let result = {};
+    if (err) {
+      console.log(err);
+      result.status = 'fail';
+      result.message = 'Error calculating shipping options';
+      res.status(200).send(JSON.stringify(result));
+      return;
+    }
+
+    result.status = 'success';
+    result.message = 'Calculated shipping options';
+    result.shippingOptions = [];
+
+    let minAmount = -1;
+    let minIndex = -1;
+    for (let i in shipment.rates_list) {
+      if ({}.hasOwnProperty.call(shipment.rates_list, i)) {
+        let rate = shipment.rates_list[i];
+
+        let amountNumber = Number(rate.amount);
+        if (minAmount === -1 || minAmount &gt; amountNumber) {
+          minAmount = amountNumber;
+          minIndex = i;
+        }
+
+        let option = {
+          id: rate.object_id,
+          label: rate.provider + ' ' + rate.servicelevel_name,
+          amount: {currency: rate.currency, value: rate.amount},
+          selected: false,
+        };
+
+        result.shippingOptions.push(option);
+      }
+    }
+
+    if (minIndex !== -1) {
+      result.shippingOptions[minIndex].selected = true;
+    }
+
+    res.status(200).send(JSON.stringify(result));
+  });
+});
+
+/**
+ * Authorizes and Android Pay token for USD $0.50 via Stripe.
+ */
+app.post('/buy', function(req, res) {
+  const errorString = JSON.stringify({
+    status: 'fail',
+    message: 'Invalid request',
+  });
+
+  if (!req.body
+      || !req.body.methodName
+      || req.body.methodName !== 'https://android.com/pay'
+      || !req.body.details
+      || !req.body.details.paymentMethodToken
+      || !JSON.parse(req.body.details.paymentMethodToken).id) {
+    res.status(200).send(errorString);
+    return;
+  }
+
+  stripe.charges.create({
+    amount: 50,
+    currency: 'usd',
+    source: JSON.parse(req.body.details.paymentMethodToken).id,
+    description: 'Web payments demo',
+    capture: false,
+  }, function(err, charge) {
+    if (err) {
+      res.status(200).send(errorString);
+    } else {
+      res.status(200).send(JSON.stringify({
+        status: 'success',
+        message: 'Payment authorized',
+      }));
+    }
+  });
+});
+
+/**
+ * Starts the server.
+ */
+if (module === require.main) {
+  let server = app.listen(process.env.PORT || 8080, function() {
+    console.log('App listening on port %s', server.address().port);
+  });
+}
+
+module.exports = app;</code></pre>
+
+<h4><code>app.yaml</code></h4>
+
+<pre><code>runtime: nodejs
+vm: true
+
+handlers:
+- url: /.*
+  script: IGNORED
+  secure: always
+
+skip_files:
+- ^node_modules$</code></pre>
+
+</div> <!-- row -->
+</div> <!-- container -->
+<script src="pr.js"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.5.0/highlight.min.js"></script>
+<script>hljs.initHighlightingOnLoad();</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "web-payments-demo",
+  "description": "A web payments demo",
+  "version": "1.0.0",
+  "author": "Rouslan Solomakhin",
+  "engines": {
+    "node": ">=0.10.25"
+  },
+  "license": "Apache Version 2.0",
+  "scripts": {
+    "start": "node app.js",
+    "monitor": "nodemon app.js",
+    "deploy": "gcloud app deploy app.yaml"
+  },
+  "dependencies": {
+    "body-parser": "^1.15.1",
+    "express": "^4.13.4",
+    "shippo": "^1.1.3",
+    "stripe": "^4.6.0"
+  }
+}
