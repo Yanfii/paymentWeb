@@ -3,5 +3,5 @@ Simple webshop which will scan user apps to see if there are any supported payme
 <br />
 <br />
 Please read: <br />
-goo.gl/ycvq1S for implementation details. <br />
+[https://goo.gl/ycvq1S](https://goo.gl/ycvq1S) for implementation details. <br />
 https://github.com/Yanfii/paymentRequest for the payment method
